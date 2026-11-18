@@ -1,0 +1,44 @@
+{
+  "users": [
+    {
+      "name": "app",
+      "password_hash": "kI08WjbHvSvIA2hjXoBereltT40K1/EDm3y+bsShKwHqllki",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": ["administrator"]
+    }
+  ],
+  "vhosts": [{"name": "/"}],
+  "permissions": [
+    {"user": "app", "vhost": "/", "configure": ".*", "write": ".*", "read": ".*"}
+  ],
+  "exchanges": [
+    {
+      "name": "example",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "queues": [
+    {
+      "name": "example.audit",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    }
+  ],
+  "bindings": [
+    {
+      "source": "example",
+      "vhost": "/",
+      "destination": "example.audit",
+      "destination_type": "queue",
+      "routing_key": "#",
+      "arguments": {}
+    }
+  ]
+}

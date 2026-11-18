@@ -1,0 +1,66 @@
+# O Jaeger desta stack: recebe os traces por OTLP sobre HTTP, decide quais guardar e os serve na
+# tela. O armazenamento é em memória, só para a stack local.
+#
+# A AMOSTRAGEM É AQUI, e não no processo. O processo envia todo trace. Depois que o trace termina,
+# o Jaeger guarda:
+#
+# - 100% dos traces que têm algum span marcado como erro;
+# - 5% dos demais.
+#
+# A decisão só pode ser tomada no destino: enquanto a request está em andamento, o processo ainda
+# não sabe se ela vai dar erro.
+
+service:
+  extensions: [jaeger_storage, jaeger_query, healthcheckv2]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [tail_sampling]
+      exporters: [jaeger_storage_exporter]
+  telemetry:
+    resource:
+      service.name: jaeger
+    logs:
+      level: info
+
+extensions:
+  healthcheckv2:
+    use_v2: true
+    http:
+      endpoint: "0.0.0.0:13133"
+  jaeger_query:
+    storage:
+      traces: memory_store
+    http:
+      endpoint: "0.0.0.0:16686"
+  jaeger_storage:
+    backends:
+      memory_store:
+        memory:
+          max_traces: 100000
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: "0.0.0.0:4318"
+
+processors:
+  tail_sampling:
+    # Quanto o Jaeger espera, depois do primeiro span, para considerar o trace encerrado e decidir.
+    # O trace só aparece na tela depois desse tempo.
+    decision_wait: 10s
+    # Um trace é guardado quando QUALQUER política diz que sim.
+    policies:
+      - name: traces_com_erro
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: cinco_por_cento_do_resto
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 5
+
+exporters:
+  jaeger_storage_exporter:
+    trace_storage: memory_store

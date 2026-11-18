@@ -1,0 +1,81 @@
+[project]
+name = "scafold"
+version = "0.1.0"
+description = "Scaffold de projeto Python em camadas: DDD, use cases, Unit of Work, sqlc, outbox, REST, CLI, Streamlit e OpenTelemetry"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    # Borda HTTP. Traz o Pydantic, que valida toda entrada da API (ADR-011).
+    "fastapi>=0.142.2",
+    "uvicorn>=0.54.0",
+    # Borda visual. Chama os mesmos use cases da API, pela mesma composição.
+    "streamlit>=1.66.1",
+    # Despacho in-process dos eventos de domínio (ADR-001). Só `infrastructure/events/` o importa.
+    "blinker>=1.9.0",
+    # O processo instala o SDK e o exportador; o resto do código fala só com a API (ADR-012).
+    "opentelemetry-api>=1.44",
+    "opentelemetry-sdk>=1.44",
+    "opentelemetry-exporter-otlp-proto-http>=1.44",
+    # O querier gerado pelo sqlc roda sobre o SQLAlchemy Core assíncrono. O ORM não entra (ADR-003).
+    "sqlalchemy[asyncio]>=2.0.40",
+    # O driver. Só `infrastructure/persistence/engine.py` o conhece.
+    "asyncpg>=0.31",
+    # A Strategy de broker da outbox (ADR-006).
+    "aio-pika>=10.0.1",
+    # Só calcula o próximo disparo do cron do job da outbox; o laço é do projeto.
+    "croniter>=6.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.2,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx2",
+    "mypy>=2.3.1",
+    "pytest>=9.1.1,<10",
+    "pytest-bdd>=9.0.0",
+    "pytest-cov>=7.0.0",
+    "pytest-randomly>=5.0.0",
+    # Gera requisições a partir do OpenAPI e acusa resposta fora do contrato (ADR-011).
+    "schemathesis>=4.0",
+    # Postgres e RabbitMQ reais em container: os adaptadores são provados contra o real (ADR-010).
+    "testcontainers[postgres,rabbitmq]>=4.15",
+    "types-croniter>=6.2.4.20260711",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# A raiz do projeto entra no caminho de import: o Streamlit de teste importa `tests.support`.
+pythonpath = ["."]
+bdd_features_base_dir = "tests/features"
+# A cobertura é medida e reportada a cada execução; não há percentual mínimo.
+addopts = "--strict-markers --cov --cov-report=term-missing"
+markers = [
+    "domain: regras puras do domínio, sem fake",
+    "contract: o mesmo cenário roda contra o fake e contra o adaptador real",
+    "integration: exige PostgreSQL ou RabbitMQ reais em container (Docker)",
+    "fuzz: requisições geradas pelo Schemathesis; mais lento que os demais",
+]
+filterwarnings = [
+    "error::RuntimeWarning",
+    "error::pytest.PytestUnraisableExceptionWarning",
+    # Aviso interno do testcontainers sobre a própria espera do container do RabbitMQ.
+    "ignore:The @wait_container_is_ready decorator is deprecated:DeprecationWarning",
+]
+
+[tool.coverage.run]
+source_pkgs = ["scafold"]
+
+[tool.mypy]
+strict = true
+warn_unreachable = true
+files = ["src", "tests", "entrypoint"]
+mypy_path = "src"
+explicit_package_bases = true
+
+# Pacotes de terceiro sem stubs. Silenciar o import ausente não afrouxa a checagem do projeto.
+[[tool.mypy.overrides]]
+module = ["testcontainers.*", "asyncpg.*"]
+ignore_missing_imports = true

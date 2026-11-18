@@ -1,0 +1,12 @@
+# O Prometheus desta stack não busca métrica em lugar nenhum: não há `scrape_configs`. Quem envia
+# é o processo, por OTLP, para `/api/v1/otlp/v1/metrics`.
+#
+# Na chegada, o Prometheus traduz os nomes do OpenTelemetry para os dele: ponto vira sublinhado, a
+# unidade vira sufixo (`s` vira `_seconds`, `By` vira `_bytes`) e contador ganha `_total`. É assim
+# que `http.server.request.duration` aparece como `http_server_request_duration_seconds`. O nome
+# do serviço (`service.name`) vira o rótulo `job`.
+
+storage:
+  tsdb:
+    # O envio por OTLP pode chegar fora de ordem; sem a janela, a amostra atrasada é recusada.
+    out_of_order_time_window: 30m

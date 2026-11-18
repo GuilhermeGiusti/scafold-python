@@ -1,0 +1,80 @@
+# Stack local do scaffold: Postgres, o Flyway que aplica as migrations, o RabbitMQ da outbox, o
+# Prometheus que recebe as métricas e o Jaeger que recebe os traces.
+#
+# Os processos (API, CLI, Streamlit e job da outbox) NÃO estão aqui: eles rodam com
+# `uv run --env-file .env ...` contra esta stack. Os testes também não usam este compose: eles
+# sobem o próprio Postgres e o próprio RabbitMQ pelo testcontainers.
+
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    ports:
+      # Porta do host configurável: outro Postgres local na 5432 não impede a stack de subir.
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Job que roda uma vez e sai: `make migrate-up` (= `docker compose run --rm flyway migrate`).
+  flyway:
+    image: flyway/flyway:13.4-alpine
+    command: -connectRetries=30 migrate
+    environment:
+      FLYWAY_URL: jdbc:postgresql://postgres:5432/app
+      FLYWAY_USER: app
+      FLYWAY_PASSWORD: app
+      # Uma location por bounded context. O Flyway numera as versões GLOBALMENTE entre elas.
+      FLYWAY_LOCATIONS: filesystem:/flyway/sql/example,filesystem:/flyway/sql/outbox
+      # `clean` apaga o schema inteiro: desligado para nunca rodar por engano.
+      FLYWAY_CLEAN_DISABLED: "true"
+    volumes:
+      - ./migrations/example:/flyway/sql/example:ro
+      - ./migrations/outbox:/flyway/sql/outbox:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: [tools]
+
+  rabbitmq:
+    image: rabbitmq:4.3-management-alpine
+    volumes:
+      - ./config/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-scafold.conf:ro
+      - ./config/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      # A tela de administração: http://localhost:15672 (app / app).
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      # Sem esta opção o Prometheus não aceita OTLP. O processo envia para
+      # `/api/v1/otlp/v1/metrics`.
+      - --web.enable-otlp-receiver
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+
+  jaeger:
+    image: jaegertracing/jaeger:2.21.0
+    command: ["--config", "/etc/jaeger/config.yaml"]
+    volumes:
+      - ./config/jaeger.yaml:/etc/jaeger/config.yaml:ro
+    ports:
+      # A tela do Jaeger.
+      - "${JAEGER_UI_PORT:-16686}:16686"
+      # OTLP sobre HTTP: o processo envia para `/v1/traces`.
+      - "${JAEGER_OTLP_PORT:-4318}:4318"

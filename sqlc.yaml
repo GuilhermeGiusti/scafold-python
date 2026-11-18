@@ -1,0 +1,59 @@
+# Configuração do sqlc: UM BLOCO POR BOUNDED CONTEXT (ADR-003).
+#
+# Cada bloco enxerga só as migrations e as queries do próprio contexto, então um JOIN que cruze a
+# fronteira nem chega a gerar código. Contexto novo ganha bloco novo, copiado de um destes,
+# trocando `schema`, `queries`, `out` e `package`.
+#
+# Os caminhos são relativos a este arquivo, que é de onde o `sqlc` roda (pelo Makefile). O código
+# gerado é COMMITADO e NUNCA editado à mão: mude o SQL, rode `make generate` e commite os dois.
+
+version: "2"
+
+plugins:
+  - name: py
+    wasm:
+      # Versão e sha256 fixados: o sqlc recusa um WASM adulterado ou trocado.
+      url: https://downloads.sqlc.dev/plugin/sqlc-gen-python_1.3.0.wasm
+      sha256: fbedae96b5ecae2380a70fb5b925fd4bff58a6cfb1f3140375d098fbab7b3a3c
+
+sql:
+  - engine: postgresql
+    schema: migrations/example
+    queries: queries/example
+    # `sqlc vet` com `db-prepare` PREPARA cada query contra um Postgres real e pega o que só o
+    # Postgres recusa. Exige o banco no ar e migrado (`make sqlc-vet`).
+    rules:
+      - sqlc/db-prepare
+    database:
+      uri: ${SQLC_DATABASE_URI}
+    analyzer:
+      # `generate` e `diff` não falam com o banco: gerar código não pode exigir Docker.
+      database: false
+    codegen:
+      - out: src/scafold/infrastructure/persistence/bounded_context_example/sqlc
+        plugin: py
+        options:
+          # Caminho COMPLETO do pacote; sem ele o gerado emite `from sqlc import models`.
+          package: scafold.infrastructure.persistence.bounded_context_example.sqlc
+          emit_async_querier: true
+          emit_sync_querier: false
+          emit_pydantic_models: false
+
+  # Contexto TÉCNICO, e não bounded context de negócio. Enxerga só as próprias migrations.
+  - engine: postgresql
+    schema: migrations/outbox
+    queries: queries/outbox
+    rules:
+      - sqlc/db-prepare
+    database:
+      uri: ${SQLC_DATABASE_URI}
+    analyzer:
+      database: false
+    codegen:
+      - out: src/scafold/infrastructure/persistence/outbox/sqlc
+        plugin: py
+        options:
+          package: scafold.infrastructure.persistence.outbox.sqlc
+          emit_async_querier: true
+          emit_sync_querier: false
+          emit_pydantic_models: false
